@@ -1,97 +1,90 @@
 #include <iostream>
-#include <pthread.h>
-#include <semaphore.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
-sem_t tobacco_sem;
-sem_t paper_sem;
-sem_t matches_sem;
-sem_t bartender_sem;
+int tobacco_pipe[2];
+int paper_pipe[2];
+int matches_pipe[2];
 
-void* smoker(void* arg) {
-    char smoker_type = *((char*)arg);
-
+void smoker(const char smoker_type) {
+    char buf;
     while (true) {
-        sem_wait(&bartender_sem);
+        read(tobacco_pipe[0], &buf, sizeof(buf));
 
-        switch (smoker_type) {
-            case 't':
-                std::cout << "Т получил табак и курит\n";
-                break;
-            case 'p':
-                std::cout << "P получил бумагу и курит\n";
-                break;
-            case 'm':
-                std::cout << "M получил спички и курит\n";
-                break;
+        if (buf == smoker_type) {
+            switch (smoker_type) {
+                case 't':
+                    std::cout << "T got tobacco and smokes\n";
+                    break;
+                case 'p':
+                    std::cout << "P got the paper and smokes\n";
+                    break;
+                case 'm':
+                    std::cout << "M got matches and smokes\n";
+                    break;
+            }
+            sleep(1);
+            write(tobacco_pipe[1], &buf, sizeof(buf));
         }
-
-        sleep(1);
-
-        sem_post(&bartender_sem);
-
-        pthread_exit(NULL);
     }
-
-    return NULL;
 }
 
-void* bartender(void* arg) {
-    char found_item;
-    int num_smokers = 3;
+void bartender() {
+    char found;
+    int smokers_count = 3;
 
-    while (num_smokers > 0) {
-        std::cin >> found_item;
+    while (smokers_count > 0) {
+        std::cin >> found;
 
-        switch (found_item) {
+        switch (found) {
             case 't':
-                std::cout << "Бармен нашел табак\n";
-                sem_post(&tobacco_sem);
+                std::cout << "The bartender found tobacco\n";
+                write(tobacco_pipe[1], &found, sizeof(found));
                 break;
             case 'p':
-                std::cout << "Бармен нашел бумагу\n";
-                sem_post(&paper_sem);
+                std::cout << "The bartender found the paper\n";
+                write(paper_pipe[1], &found, sizeof(found));
                 break;
             case 'm':
-                std::cout << "Бармен нашел спички\n";
-                sem_post(&matches_sem);
+                std::cout << "The bartender found matches\n";
+                write(matches_pipe[1], &found, sizeof(found));
                 break;
             default:
-                std::cerr << "Неизвестный предмет!\n";
+                std::cerr << "Unknown item!\n";
                 break;
         }
 
-        sem_wait(&bartender_sem);
-
-        num_smokers--;
+        smokers_count--;
     }
-
-    return NULL;
 }
 
 int main() {
-    sem_init(&tobacco_sem, 0, 0);
-    sem_init(&paper_sem, 0, 0);
-    sem_init(&matches_sem, 0, 0);
-    sem_init(&bartender_sem, 0, 1);
+    pipe(tobacco_pipe);
+    pipe(paper_pipe);
+    pipe(matches_pipe);
 
-    pthread_t smoker_threads[3];
-    pthread_create(&smoker_threads[0], NULL, smoker, (void*) "t");
-    pthread_create(&smoker_threads[1], NULL, smoker, (void*) "p");
-    pthread_create(&smoker_threads[2], NULL, smoker, (void*) "m");
-
-    pthread_t bartender_thread;
-    pthread_create(&bartender_thread, NULL, bartender, NULL);
-
-    pthread_join(bartender_thread, NULL);
-    for (int i = 0; i < 3; ++i) {
-        pthread_join(smoker_threads[i], NULL);
+    if (fork() == 0) {
+        smoker('t');
     }
 
-    sem_destroy(&tobacco_sem);
-    sem_destroy(&paper_sem);
-    sem_destroy(&matches_sem);
-    sem_destroy(&bartender_sem);
+    if (fork() == 0) {
+        smoker('p');
+    }
+
+    if (fork() == 0) {
+        smoker('m');
+    }
+
+    bartender();
+
+    close(tobacco_pipe[0]);
+    close(tobacco_pipe[1]);
+    close(paper_pipe[0]);
+    close(paper_pipe[1]);
+    close(matches_pipe[0]);
+    close(matches_pipe[1]);
+
+    while (wait(NULL) != -1);
 
     return 0;
 }
